@@ -1,0 +1,13 @@
+# iPhoneFavoritesToExif Requirements
+#
+# This project uses only Python standard library modules.
+# No external Python dependencies are required.
+#
+# However, the following external tool must be installed:
+# - exiftool: https://exiftool.org/
+#
+# Installation commands:
+#   Windows (Chocolatey): choco install exiftool
+#   macOS (Homebrew): brew install exiftool
+#   Linux (Ubuntu/Debian): sudo apt-get install libimage-exiftool-perl
+#   Linux (CentOS/RHEL): sudo yum install perl-Image-ExifTool
