@@ -2,13 +2,13 @@
 
 ## System Overview
 
-`iPhoneFavoritesToExif` is designed as a single-threaded, batch-processing command-line application. The architecture follows a simple pipeline pattern: read database → find files → process each file → write EXIF.
+`iPhone Favorites Saver` is designed as a single-threaded, batch-processing command-line application. The architecture follows a simple pipeline pattern: read database → find files → process each file → write EXIF.
 
 ## Project Structure (Planned)
 
 ```
-iPhoneFavoritesToExif/
-├── migrate_photos.py         # Main entry point and CLI
+iPhoneFavoritesSaver/
+├── iphone-favorites-saver.py  # Main entry point and CLI
 ├── requirements.txt           # Python dependencies
 ├── README.md                  # User documentation
 ├── .gitignore                 # Git configuration
@@ -19,7 +19,7 @@ iPhoneFavoritesToExif/
     └── migrator.py            # Main migration logic
 ```
 
-**Note**: For a simple project like this, all code could live in a single `migrate_photos.py` file. Modular structure shown above is optional and should be used if the project grows.
+**Note**: For a simple project like this, all code could live in a single `iphone-favorites-saver.py` file. Modular structure shown above is optional and should be used if the project grows.
 
 ## Core Components
 

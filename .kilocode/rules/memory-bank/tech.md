@@ -90,7 +90,7 @@ Consider these if needed:
 1. Clone repository
 2. Ensure Python 3.6+ is installed
 3. Install exiftool
-4. Run script directly: `python migrate_photos.py --help`
+4. Run script directly: `python iphone-favorites-saver.py --help`
 5. No virtual environment strictly needed (no dependencies initially)
 
 ## Technical Constraints
@@ -242,7 +242,7 @@ def validate_database(db_path):
 git clone <repo_url>
 
 # Run script
-python migrate_photos.py /path/to/Photos.sqlite /path/to/photos
+python iphone-favorites-saver.py /path/to/Photos.sqlite /path/to/photos
 ```
 
 ## Future Technical Enhancements

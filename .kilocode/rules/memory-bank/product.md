@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`iPhoneFavoritesToExif` is a command-line Python application that preserves photo metadata when transferring photos from iPhone to PC. It specifically migrates favorites status and image descriptions from iPhone's Photos.sqlite database into the EXIF metadata of the copied image files.
+`iPhone Favorites Saver` is a command-line Python application that preserves photo metadata when transferring photos from iPhone to PC. It specifically migrates favorites status and image descriptions from iPhone's Photos.sqlite database into the EXIF metadata of the copied image files.
 
 ## Problem It Solves
 

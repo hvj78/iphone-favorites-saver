@@ -1,4 +1,4 @@
-# iPhoneFavoritesToExif
+# iPhone Favorites Saver
 
 A command-line Python application that migrates favorites status and image descriptions from an iPhone's Photos.sqlite database into the EXIF metadata of copied photo files.
 
@@ -25,7 +25,7 @@ When copying photos from iPhone to PC, important metadata like favorites status 
 ## Usage
 
 ```bash
-python migrate_photos.py <path_to_Photos.sqlite> <path_to_photo_directory> [options]
+python iphone-favorites-saver.py <path_to_Photos.sqlite> <path_to_photo_directory> [options]
 ```
 
 ### Arguments
@@ -42,12 +42,12 @@ python migrate_photos.py <path_to_Photos.sqlite> <path_to_photo_directory> [opti
 ### Example
 
 ```bash
-python migrate_photos.py /path/to/Photos.sqlite /path/to/DCIM --verbose
+python iphone-favorites-saver.py /path/to/Photos.sqlite /path/to/DCIM --verbose
 ```
 
 ## Logging
 
-Every run creates a timestamped file inside the `logs/` directory (e.g., `logs/migrate_photos_20250101_101500.log`).
+Every run creates a timestamped file inside the `logs/` directory (e.g., `logs/iphone_favorites_saver_20250101_101500.log`).
 Logs capture the CLI invocation, Python/exiftool versions, each exiftool command, and the final statistics, providing a full audit trail.
 
 ## Exit Codes

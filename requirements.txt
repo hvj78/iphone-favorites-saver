@@ -1,4 +1,4 @@
-# iPhoneFavoritesToExif Requirements
+# iPhone Favorites Saver Requirements
 #
 # This project uses only Python standard library modules.
 # No external Python dependencies are required.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""iPhoneFavoritesToExif - migrate favorites and descriptions to EXIF metadata."""
+"""iPhone Favorites Saver - migrate favorites and descriptions to EXIF metadata."""
 
 from __future__ import annotations
 
@@ -149,7 +149,7 @@ def setup_logger() -> Tuple[logging.Logger, Path]:
     logs_dir = Path(__file__).resolve().parent / "logs"
     logs_dir.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = logs_dir / f"migrate_photos_{timestamp}.log"
+    log_path = logs_dir / f"iphone_favorites_saver_{timestamp}.log"
 
     logger = logging.getLogger("migrator")
     logger.setLevel(logging.INFO)
