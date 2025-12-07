@@ -1,36 +1,26 @@
 # Current Context
 
 ## Project Status
-**New project - not yet implemented**
+**CLI implemented - undergoing polishing**
 
-This is a greenfield Python command-line application. No code has been written yet.
+The iPhone Favorites Saver script exists as `iphone-favorites-saver.py` with argument parsing, SQLite ingestion, file scanning, EXIF read/write, logging, and conflict handling already coded.
 
 ## Current Focus
-Memory Bank initialization - documenting the project requirements and design.
+- Aligning branding/log output with the new application name
+- Improving logging clarity (read vs write vs dry-run)
+- Ensuring optional `--overwrite-original` flag propagates through every EXIF call
 
 ## Next Steps
-1. Implement project structure:
-   - Create main Python script
-   - Set up requirements.txt for dependencies
-   - Add README with usage instructions
-
-2. Core functionality to implement:
-   - SQLite database reader for Photos.sqlite
-   - Photo file discovery (scanning for 100APPLE folders)
-   - EXIF metadata reader/writer integration
-   - Conflict detection logic
-   - Interactive user prompts
-   - Command-line argument parsing
-
-3. Testing considerations:
-   - Test with sample Photos.sqlite database
-   - Verify EXIF writing on various image formats
-   - Test conflict detection and user prompts
+1. Exercise the CLI end-to-end with sample Photos.sqlite + DCIM trees
+2. Capture user feedback on the new logging format and overwrite flag defaults
+3. Package usability improvements (README polish, sample commands, screenshots)
 
 ## Recent Changes
-- Memory Bank initialized (just now)
+- Script renamed to `iphone-favorites-saver.py` and log files now use the `iphone_favorites_saver_*.log` prefix
+- README/requirements updated to display "iPhone Favorites Saver" plus the new CLI name
+- Memory Bank files refreshed to describe the renamed entry point and usage patterns
 
 ## Notes
-- User expects the project to work with already-copied photos, preserving original folder structure
-- Database file may be renamed, so path must be flexible
-- Safety is paramount - always check before overwriting existing EXIF data
+- Default behavior keeps exiftool `_original` backups; pass `--overwrite-original` to suppress them
+- Safety-first flow is preserved: read before write, prompt on conflicts, respect dry-run mode
+- Expect future enhancements (e.g., better progress UI) once the rename dust settles
