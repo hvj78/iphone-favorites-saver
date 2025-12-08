@@ -65,52 +65,110 @@ class ExifToolError(RuntimeError):
     """Raised when exiftool execution fails."""
 
 
+class ConsoleReporter:
+    """Handles stdout messaging with optional verbosity."""
+
+    def __init__(self, verbose: bool) -> None:
+        self.verbose = verbose
+
+    def phase(self, message: str) -> None:
+        if self.verbose:
+            print(f"\n== {message} ==")
+
+    def info(self, message: str, *, verbose_only: bool = False) -> None:
+        if verbose_only and not self.verbose:
+            return
+        print(message)
+
+    def warn(self, message: str) -> None:
+        print(f"WARNING: {message}")
+
+    def error(self, message: str) -> None:
+        print(f"ERROR: {message}")
+
+    def detail(self, message: str) -> None:
+        if self.verbose:
+            print(message)
+
+
+def strip_arg_quotes(value: str) -> str:
+    return value.strip().strip('"')
+
+
+def cleanup_path_arg(value: str) -> Tuple[str, bool]:
+    cleaned = strip_arg_quotes(value)
+    verbose_found = False
+    for flag in (" -v", " --verbose"):
+        if cleaned.endswith(flag):
+            cleaned = cleaned[: -len(flag)]
+            verbose_found = True
+            break
+    return cleaned.strip(), verbose_found
+
+
 def main() -> None:
     ensure_python_version()
     args = parse_args()
+
+    args.database = strip_arg_quotes(args.database)
+    cleaned_photo_dir, verbose_from_path = cleanup_path_arg(args.photo_dir)
+    args.photo_dir = cleaned_photo_dir
+    if verbose_from_path:
+        args.verbose = True
+
     start_time = time.time()
+    reporter = ConsoleReporter(args.verbose)
 
     logger, log_path = setup_logger()
+    reporter.phase("Checking dependencies")
     try:
         exiftool_info = check_dependencies()
     except FileNotFoundError:
-        logger.error("exiftool not found. Install it from https://exiftool.org/ before running.")
+        message = "exiftool not found. Install it from https://exiftool.org/ before running."
+        logger.error(message)
+        reporter.error(message)
         sys.exit(EXIT_EXIFTOOL_MISSING)
     except subprocess.CalledProcessError as exc:
         logger.error("Failed to execute exiftool -ver: %s", exc)
+        reporter.error("Failed to execute exiftool -ver. See log for details.")
         sys.exit(EXIT_EXIFTOOL_MISSING)
 
     log_run_header(logger, args, exiftool_info, log_path)
 
-    if not validate_database(args.database, logger):
+    reporter.phase("Validating database")
+    if not validate_database(args.database, logger, reporter):
         sys.exit(EXIT_INVALID_DB)
 
+    reporter.phase("Reading metadata from Photos.sqlite")
     metadata = read_database_metadata(args.database, logger)
     if not metadata:
-        print("Warning: No favorites or descriptions found in database.")
+        reporter.warn("Database contains no favorites or descriptions. Nothing to migrate.")
         logger.warning("Database query returned zero rows containing favorites/descriptions.")
 
-    photo_files = scan_photo_files(args.photo_dir, logger)
+    reporter.phase("Scanning photo library")
+    photo_files = scan_photo_files(args.photo_dir, logger, reporter)
     if not photo_files:
         logger.error("No supported photo files found under %s", args.photo_dir)
+        reporter.error(f"No supported photo files found under {args.photo_dir}")
         sys.exit(EXIT_NO_PHOTOS)
 
-    matched = match_metadata(metadata, photo_files, logger)
+    reporter.phase("Matching metadata to files")
+    matched = match_metadata(metadata, photo_files, logger, reporter)
     if not matched:
-        print("No photo files matched the database entries. Nothing to migrate.")
+        reporter.info("No photo files matched the database entries. Exiting.")
         logger.warning("No matches between database metadata and scanned files.")
         log_run_footer(logger, {"processed": 0, "skipped": 0, "errors": 0}, start_time)
         sys.exit(EXIT_SUCCESS)
 
-    print(f"Preparing to migrate {len(matched)} photo(s)...")
-    stats = run_migration(matched, args, logger)
+    reporter.phase(f"Migrating metadata for {len(matched)} photo(s)")
+    stats = run_migration(matched, args, logger, reporter)
 
     log_run_footer(logger, stats, start_time)
 
-    print("\nMigration complete:")
-    print(f"  Processed: {stats['processed']}")
-    print(f"  Skipped:   {stats['skipped']}")
-    print(f"  Errors:    {stats['errors']}")
+    reporter.phase("Migration complete")
+    reporter.info(
+        f"Processed: {stats['processed']} | Skipped: {stats['skipped']} | Errors: {stats['errors']}"
+    )
 
     exit_code = EXIT_SUCCESS if stats["errors"] == 0 else EXIT_GENERAL_ERROR
     sys.exit(exit_code)
@@ -199,9 +257,13 @@ def check_dependencies() -> Tuple[str, str]:
     return exiftool_path, version
 
 
-def validate_database(db_path: str, logger: logging.Logger) -> bool:
+def validate_database(
+    db_path: str, logger: logging.Logger, reporter: ConsoleReporter
+) -> bool:
     if not os.path.exists(db_path):
-        logger.error("Database file not found: %s", db_path)
+        msg = f"Database file not found: {db_path}"
+        logger.error(msg)
+        reporter.error(msg)
         return False
 
     try:
@@ -211,10 +273,14 @@ def validate_database(db_path: str, logger: logging.Logger) -> bool:
             tables = {row[0] for row in cursor.fetchall()}
 
         if "ZASSET" not in tables:
-            logger.error("Not a valid Photos.sqlite database (missing ZASSET): %s", db_path)
+            msg = f"Not a valid Photos.sqlite database (missing ZASSET): {db_path}"
+            logger.error(msg)
+            reporter.error(msg)
             return False
     except sqlite3.Error as exc:
-        logger.error("Failed to open database %s: %s", db_path, exc)
+        msg = f"Failed to open database {db_path}: {exc}"
+        logger.error(msg)
+        reporter.error("Failed to open database. See log for details.")
         return False
 
     return True
@@ -279,13 +345,49 @@ def build_metadata_query(cursor: sqlite3.Cursor, tables: Dict[str, List[str]]) -
     joins: List[str] = []
     desc_clauses: List[str] = []
 
+    # Determine if this is iOS 18+ schema (uses ZADDITIONALATTRIBUTES) or older (uses Z_PK = ZASSET)
+    zasset_cols = tables.get("ZASSET", [])
+    is_ios18 = "ZADDITIONALATTRIBUTES" in zasset_cols
+
+    # First join: ZASSET -> ZADDITIONALASSETATTRIBUTES
     if "ZADDITIONALASSETATTRIBUTES" in tables:
-        joins.append(
-            "LEFT JOIN ZADDITIONALASSETATTRIBUTES ON ZASSET.Z_PK = ZADDITIONALASSETATTRIBUTES.ZASSET"
-        )
+        if is_ios18:
+            # iOS 18: ZASSET.ZADDITIONALATTRIBUTES -> ZADDITIONALASSETATTRIBUTES.Z_PK
+            joins.append(
+                "LEFT JOIN ZADDITIONALASSETATTRIBUTES ON ZASSET.ZADDITIONALATTRIBUTES = ZADDITIONALASSETATTRIBUTES.Z_PK"
+            )
+        else:
+            # Older iOS: ZASSET.Z_PK -> ZADDITIONALASSETATTRIBUTES.ZASSET
+            joins.append(
+                "LEFT JOIN ZADDITIONALASSETATTRIBUTES ON ZASSET.Z_PK = ZADDITIONALASSETATTRIBUTES.ZASSET"
+            )
+
         if "ZTITLE" in tables["ZADDITIONALASSETATTRIBUTES"]:
             desc_clauses.append("NULLIF(ZADDITIONALASSETATTRIBUTES.ZTITLE, '')")
 
+    # Second join: ZADDITIONALASSETATTRIBUTES -> ZASSETDESCRIPTION
+    if (
+        "ZASSETDESCRIPTION" in tables
+        and "ZADDITIONALASSETATTRIBUTES" in tables
+    ):
+        aaa_cols = tables.get("ZADDITIONALASSETATTRIBUTES", [])
+        desc_cols = tables.get("ZASSETDESCRIPTION", [])
+
+        if "ZASSETDESCRIPTION" in aaa_cols:
+            # iOS 18: ZADDITIONALASSETATTRIBUTES.ZASSETDESCRIPTION -> ZASSETDESCRIPTION.Z_PK
+            joins.append(
+                "LEFT JOIN ZASSETDESCRIPTION ON ZADDITIONALASSETATTRIBUTES.ZASSETDESCRIPTION = ZASSETDESCRIPTION.Z_PK"
+            )
+        elif "ZASSETATTRIBUTES" in desc_cols:
+            # Older iOS: ZASSETDESCRIPTION.ZASSETATTRIBUTES -> ZADDITIONALASSETATTRIBUTES.Z_PK
+            joins.append(
+                "LEFT JOIN ZASSETDESCRIPTION ON ZASSETDESCRIPTION.ZASSETATTRIBUTES = ZADDITIONALASSETATTRIBUTES.Z_PK"
+            )
+
+        if "ZLONGDESCRIPTION" in tables["ZASSETDESCRIPTION"]:
+            desc_clauses.insert(0, "NULLIF(ZASSETDESCRIPTION.ZLONGDESCRIPTION, '')")
+
+    # Third join: ZEXTENDEDATTRIBUTES (for older iOS versions with ZCAPTION)
     if "ZEXTENDEDATTRIBUTES" in tables and "ZCAPTION" in tables["ZEXTENDEDATTRIBUTES"]:
         joins.append(
             "LEFT JOIN ZEXTENDEDATTRIBUTES ON ZASSET.Z_PK = ZEXTENDEDATTRIBUTES.ZASSET"
@@ -331,10 +433,13 @@ def normalize_rel_path(rel_path: str) -> str:
     return Path(rel_path).as_posix().lower()
 
 
-def scan_photo_files(photo_dir: str, logger: logging.Logger) -> Dict[str, FileRecord]:
+def scan_photo_files(
+    photo_dir: str, logger: logging.Logger, reporter: ConsoleReporter
+) -> Dict[str, FileRecord]:
     base_path = Path(photo_dir)
     if not base_path.exists():
         logger.error("Photo directory not found: %s", photo_dir)
+        reporter.error(f"Photo directory not found: {photo_dir}")
         return {}
 
     photo_files: Dict[str, FileRecord] = {}
@@ -356,18 +461,25 @@ def scan_photo_files(photo_dir: str, logger: logging.Logger) -> Dict[str, FileRe
             normalized = normalize_rel_path(rel_path)
             if normalized in photo_files:
                 logger.warning("Duplicate file encountered after normalization: %s", rel_path)
+                reporter.detail(f"Duplicate file skipped: {rel_path}")
                 continue
             photo_files[normalized] = FileRecord(rel_path, str(root_path / file_name))
 
     if not apple_dir_found:
-        logger.warning("No folders matching */[0-9]+APPLE were found under %s", photo_dir)
+        message = f"No folders matching */[0-9]+APPLE were found under {photo_dir}"
+        logger.warning(message)
+        reporter.warn(message)
 
     logger.info("Discovered %s photo file(s) under %s", len(photo_files), photo_dir)
+    reporter.info(f"Discovered {len(photo_files)} supported photo file(s)")
     return photo_files
 
 
 def match_metadata(
-    metadata: Dict[str, PhotoMeta], photo_files: Dict[str, FileRecord], logger: logging.Logger
+    metadata: Dict[str, PhotoMeta],
+    photo_files: Dict[str, FileRecord],
+    logger: logging.Logger,
+    reporter: ConsoleReporter,
 ) -> List[MatchedPhoto]:
     matched: List[MatchedPhoto] = []
     missing_files = 0
@@ -379,14 +491,20 @@ def match_metadata(
         matched.append(MatchedPhoto(file_record, meta))
 
     if missing_files:
-        logger.warning("%s metadata record(s) did not have matching files on disk.", missing_files)
+        message = f"{missing_files} metadata record(s) did not have matching files on disk."
+        logger.warning(message)
+        reporter.warn(message)
 
     logger.info("Matched %s file(s) between database and disk.", len(matched))
+    reporter.info(f"Matched {len(matched)} photo(s)")
     return matched
 
 
 def run_migration(
-    matched: Sequence[MatchedPhoto], args: argparse.Namespace, logger: logging.Logger
+    matched: Sequence[MatchedPhoto],
+    args: argparse.Namespace,
+    logger: logging.Logger,
+    reporter: ConsoleReporter,
 ) -> Dict[str, int]:
     stats = {"processed": 0, "skipped": 0, "errors": 0}
     skip_all_conflicts = False
@@ -396,17 +514,17 @@ def run_migration(
         meta = entry.meta
         full_path = entry.record.full_path
 
-        if args.verbose:
-            print(f"\nProcessing {rel_path}")
+        reporter.detail(f"Processing {rel_path}")
 
         if not meta.favorite and not meta.description:
             stats["skipped"] += 1
+            reporter.detail(f"Skipping {rel_path} - no metadata present in database.")
             continue
 
         try:
             existing = read_exif_data(full_path, logger)
         except ExifToolError:
-            print(f"Failed to read EXIF for {rel_path}. See log for details.")
+            reporter.error(f"Failed to read EXIF for {rel_path}. See log for details.")
             stats["errors"] += 1
             continue
 
@@ -415,6 +533,7 @@ def run_migration(
 
         if not needs_rating and not needs_description:
             logger.info("Skipping %s - no EXIF changes required.", rel_path)
+            reporter.detail(f"Skipping {rel_path} - already up to date.")
             stats["skipped"] += 1
             continue
 
@@ -422,15 +541,18 @@ def run_migration(
         if has_conflict:
             if skip_all_conflicts:
                 stats["skipped"] += 1
+                reporter.detail(f"Skipping {rel_path} due to 'skip all' selection.")
                 continue
 
             decision = prompt_conflict(rel_path, existing, meta)
             if decision == "skip":
                 stats["skipped"] += 1
+                reporter.detail(f"User chose to keep existing metadata for {rel_path}.")
                 continue
             if decision == "skip_all":
                 skip_all_conflicts = True
                 stats["skipped"] += 1
+                reporter.detail("User chose to skip all remaining conflicts.")
                 continue
             # decision == "overwrite" -> continue
 
@@ -438,7 +560,7 @@ def run_migration(
         action_description = meta.description if needs_description else None
 
         if args.dry_run:
-            print(
+            reporter.detail(
                 f"[DRY RUN] Would update {rel_path}: rating={action_rating}, "
                 f"description={'<unchanged>' if action_description is None else repr(action_description)}"
             )
@@ -465,10 +587,10 @@ def run_migration(
             success = False
 
         if success:
-            print(f"Updated {rel_path}")
+            reporter.detail(f"Updated {rel_path}")
             stats["processed"] += 1
         else:
-            print(f"Failed to update {rel_path}. See log for details.")
+            reporter.error(f"Failed to update {rel_path}. See log for details.")
             stats["errors"] += 1
 
     return stats

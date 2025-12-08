@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python db_discovery.py:*)",
+      "Bash(python iphone-favorites-saver.py:*)",
+      "Bash(cat:*)",
+      "Bash(python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
