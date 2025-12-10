@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -703,6 +704,17 @@ def build_write_cmd_args(
 def run_exiftool(
     cmd_args: Sequence[str], logger: logging.Logger, purpose: str = "RUN"
 ) -> subprocess.CompletedProcess[str]:
+    """Run exiftool with the given arguments.
+
+    For write operations, uses an argfile with UTF-8 BOM encoding to ensure
+    proper handling of non-ASCII characters (e.g., Hungarian áéíóöőúüű) on Windows.
+    """
+    # For write operations, use argfile to preserve UTF-8 encoding
+    # This is necessary because Windows command line uses cp1252 by default
+    if purpose.lower() == "write":
+        return _run_exiftool_with_argfile(cmd_args, logger)
+
+    # For read operations, command line is fine
     full_cmd = ["exiftool", "-charset", "utf8", "-q", "-q", *cmd_args]
     display_cmd = format_command(full_cmd)
     logger.info("[%s] exiftool command: %s", purpose.upper(), display_cmd)
@@ -721,6 +733,51 @@ def run_exiftool(
             f"\n{stderr}" if stderr else " <empty>",
         )
         raise ExifToolError(display_cmd) from exc
+
+
+def _run_exiftool_with_argfile(
+    cmd_args: Sequence[str], logger: logging.Logger
+) -> subprocess.CompletedProcess[str]:
+    """Run exiftool using an argfile for proper UTF-8 handling on Windows.
+
+    The argfile is written with UTF-8 BOM encoding, which exiftool recognizes
+    and uses to correctly interpret non-ASCII characters.
+    """
+    display_cmd = format_command(["exiftool", "-q", "-q", *cmd_args])
+    logger.info("[WRITE] exiftool command: %s", display_cmd)
+
+    # Create a temporary argfile with UTF-8 BOM encoding
+    fd, argfile_path = tempfile.mkstemp(suffix=".txt", prefix="exiftool_args_")
+    try:
+        # Write arguments to the argfile with UTF-8 BOM
+        with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+            f.write("-q\n")
+            f.write("-q\n")
+            for arg in cmd_args:
+                f.write(f"{arg}\n")
+
+        logger.info("[WRITE] Using argfile: %s", argfile_path)
+
+        full_cmd = ["exiftool", "-@", argfile_path]
+        result = subprocess.run(full_cmd, capture_output=True, text=True, check=True)
+        return result
+    except subprocess.CalledProcessError as exc:
+        stdout = exc.stdout.strip() if exc.stdout else ""
+        stderr = exc.stderr.strip() if exc.stderr else ""
+        logger.error(
+            "exiftool command failed\nCommand: %s\nReturn code: %s\nSTDOUT:%s\nSTDERR:%s",
+            display_cmd,
+            exc.returncode,
+            f"\n{stdout}" if stdout else " <empty>",
+            f"\n{stderr}" if stderr else " <empty>",
+        )
+        raise ExifToolError(display_cmd) from exc
+    finally:
+        # Clean up the temporary argfile
+        try:
+            os.unlink(argfile_path)
+        except OSError:
+            pass
 
 
 def format_command(parts: Sequence[str]) -> str:
